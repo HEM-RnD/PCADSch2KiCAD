@@ -854,6 +854,39 @@ static int OutputSymbol( const parameters_t *Params, unsigned Level, const pcad_
 			OutputToFile( Params, Level + 1, "(property \"Footprint\" \"%s\" (at %s %s %s) (effects (font (size 1.27 1.27))%s (hide yes)))\n", FormatLabel( Footprint, Buffer, sizeof Buffer ), x, y, Angle, JustifyKiCAD[jf % ( LENGTH( JustifyKiCAD ) - 1 )] );
 			}
 
+		for( Attr = Symbol->firstattr; Attr != NULL; Attr = Attr->next )
+			{
+			int		AttrVisible	= 0;
+			if( stricmp( Attr->name, "RefDes" ) != 0 && stricmp( Attr->name, "Value" ) != 0 )
+				{
+				dx = dy = dAngle			= 0;
+				jf	= 0;
+				if( Attr != NULL )
+					{
+					AttrVisible	= Attr->isvisible;
+					dx		= ( Symbol->isflipped && ( Symbol->rotation == 0 || Symbol->rotation == 180000000 ) ? -1 : 1 ) * Attr->point.x;
+					dy		= ( Symbol->isflipped && ( Symbol->rotation == 90000000 || Symbol->rotation == 270000000 ) ? -1 : 1 ) * Attr->point.y;
+					dAngle	= Attr->rotation;
+					jf		= Attr->justify;
+					}
+
+				if( Symbol->rotation != 0 )
+					{
+					double	X, Y, a;
+					X	= dx / 1.0e6;
+					Y	= dy / 1.0e6;
+					a	= Symbol->rotation / 180.0e6 * M_PI;
+					dx	= (int)(( X * cos( a ) - Y * sin( a )) * 1.0e6 );	//10000 ) * 100;
+					dy	= (int)(( Y * cos( a ) + X * sin( a )) * 1.0e6 );	//10000 ) * 100;
+					}
+
+				FormatReal( Params, 0, Params->OriginX, Params->ScaleX, Symbol->pt.x + dx, x, sizeof x );
+				FormatReal( Params, 0, Params->OriginY, Params->ScaleY, Symbol->pt.y + dy, y, sizeof y );
+				FormatReal( Params, 0, 0,				1,				dAngle, Angle, sizeof Angle );
+				OutputToFile( Params, Level + 1, "(property \"%s\" \"%s\" (at %s %s %s) (effects (font (size 1.27 1.27))%s%s))\n", Attr->name, Attr->value, x, y, Angle, JustifyKiCAD[jf % ( LENGTH( JustifyKiCAD ) - 1 )], AttrVisible? "" : " (hide yes)" );
+				}
+			}
+
 		OutputToFile( Params, Level + 1, "" );
 		for( i = 0, Column = 0; i < SymbolDef->numpins; i++ )
 			{
