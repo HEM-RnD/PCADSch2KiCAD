@@ -31,6 +31,14 @@
 #include "PCADOutputSchematic.h"
 #include "KiCADOutputSchematic.h"
 /*============================================================================*/
+#if			defined __linux__
+#define	PATH_SEPARATOR_CHAR	'/'
+#define	PATH_SEPARATOR_STR	"/"
+#else	/*	defined __linux__ */
+#define	PATH_SEPARATOR_CHAR	'\\'
+#define	PATH_SEPARATOR_STR	"\\"
+#endif	/*	defined __linux__ */
+/*============================================================================*/
 void SplitPath( const char *pFullPath, char *pPath, char *pName, char *pExt )
 	{
 	char	FullPath[256], *p, *q;
@@ -38,15 +46,16 @@ void SplitPath( const char *pFullPath, char *pPath, char *pName, char *pExt )
 	strncpy( FullPath, pFullPath, sizeof FullPath );
 	FullPath[sizeof FullPath - 1]	= '\0';
 
-	if(( p = strrchr( FullPath, '\\' )) != NULL )
+	if(( p = strrchr( FullPath, PATH_SEPARATOR_CHAR )) != NULL )
 		{
 		*p++	= '\0';
 		if( pPath != NULL )
 			{
 			strcpy( pPath, FullPath );
-			strcat( pPath, "\\" );
+			strcat( pPath, PATH_SEPARATOR_STR );
 			}
 		}
+#if			!defined __linux__
 	else if(( p = strrchr( FullPath, ':' )) != NULL )
 		{
 		*p++	= '\0';
@@ -56,6 +65,7 @@ void SplitPath( const char *pFullPath, char *pPath, char *pName, char *pExt )
 			strcat( pPath, ":" );
 			}
 		}
+#endif	/*	!defined __linux__ */
 	else
 		{
 		p		= FullPath;
@@ -199,7 +209,7 @@ static int Process( FILE *f, const char *pNameIn, const char *pNameOut, int Outp
 	return 0;
 	}
 /*============================================================================*/
-void PrintUsage( int OutputFormat )
+static void PrintUsage( int OutputFormat )
 	{
 #if			defined __linux__
 	fprintf( stderr,
@@ -207,8 +217,8 @@ void PrintUsage( int OutputFormat )
 	_fprintf_p( stderr,
 #endif	/*	defined __linux__ */
 		"\n"
-		"%1$s v0.9\n"
-		"Copyright(c) 2024, Isaac Marino Bavaresco\n"
+		"%1$s v1.0\n"
+		"Copyright(c) 2024-2026, Isaac Marino Bavaresco\n"
 		__DATE__ " " __TIME__ "\n\n"
 		"%2$s.\n\n"
 		"Usage: %1$s [--kicadout|--pcadout] [<pathin>]<filenamein>[.<extin>] [<pathout>][<filenameout|*>[.<extout|*>]]\n\n"
