@@ -535,6 +535,9 @@ static int OutputPin( const parameters_t *Params, unsigned Level, const pcad_pin
 		ErrorOutput( Params->Cookie, -1, "CompPin not found" );
 		}
 
+	if( pintype == PCAD_PINTYPE_NONE )
+		pintype	= CompPin->pintype;
+
 	if( CompPin->pinname == NULL )
 		OutputToFile( Params, Level, "(pin %s %s (at %s %s %s) (length %s) (number \"%s\" (effects (font (size 1.27 1.27)))))\n", PinTypes[pintype&15] /*IsPower ? "power_out" : "passive"*/, GraphStyle, x, y, Angle, Length, CompPin->pinnumber );
 	else
