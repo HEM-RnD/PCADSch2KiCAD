@@ -171,12 +171,37 @@ static const char *JustifyKiCAD[]	=
 /* A symbol instance may place its RefDes/Value itself (position, rotation, justification set on the sheet);
    the symbol definition only holds the default placement. */
 static const pcad_attr_t *FindAttr( const pcad_attr_t * const *Attributes, size_t NumAttributes, const char *Name );
-static const pcad_attr_t *PlacedAttr( const pcad_symbol_t *Symbol, const pcad_symboldef_t *SymbolDef, const char *Name )
+static const pcad_attr_t *PlacedAttr( const pcad_symbol_t *Symbol, const pcad_symboldef_t *SymbolDef, const char *Name, int *IsOwn )
 	{
 	const pcad_attr_t	*Own	= FindAttr( (const pcad_attr_t*const*)Symbol->vioattrs, Symbol->numattrs, Name );
-	if( Own != NULL && ( Own->isvisible || Own->point.x != 0 || Own->point.y != 0 || Own->rotation != 0 ))
+	*IsOwn	= Own != NULL && ( Own->isvisible || Own->point.x != 0 || Own->point.y != 0 || Own->rotation != 0 );
+	if( *IsOwn )
 		return Own;
 	return FindAttr( (const pcad_attr_t*const*)SymbolDef->vioattrs, SymbolDef->numattrs, Name );
+	}
+/*=============================================================================*/
+/* Offset of an attribute from the symbol origin on the sheet, and its angle relative to the symbol.
+   Definition attributes are in the symbol's frame (flipped and rotated with it); a placed instance attribute
+   is stored as shown on the sheet: offset not flipped or rotated, absolute angle (checked on 060 boards:
+   fewest text collisions). */
+static void AttrPlacement( const pcad_symbol_t *Symbol, const pcad_attr_t *Attr, int IsOwn, pcad_dimmension_t *dx, pcad_dimmension_t *dy, pcad_real_t *Angle )
+	{
+	if( IsOwn )
+		{
+		*dx		= Attr->point.x;
+		*dy		= Attr->point.y;
+		*Angle	= ( Attr->rotation - Symbol->rotation + 360000000 ) % 360000000;
+		return;
+		}
+	*dx		= ( Symbol->isflipped && ( Symbol->rotation == 0 || Symbol->rotation == 180000000 ) ? -1 : 1 ) * Attr->point.x;
+	*dy		= ( Symbol->isflipped && ( Symbol->rotation == 90000000 || Symbol->rotation == 270000000 ) ? -1 : 1 ) * Attr->point.y;
+	*Angle	= Attr->rotation;
+	if( Symbol->rotation != 0 )
+		{
+		double	X = *dx / 1.0e6, Y = *dy / 1.0e6, a = Symbol->rotation / 180.0e6 * M_PI;
+		*dx	= (int)(( X * cos( a ) - Y * sin( a )) * 1.0e6 );
+		*dy	= (int)(( Y * cos( a ) + X * sin( a )) * 1.0e6 );
+		}
 	}
 
 /*=============================================================================*/
@@ -1059,23 +1084,12 @@ static int OutputSymbol( const parameters_t *Params, unsigned Level, const pcad_
 		pcad_enum_justify_t	jf	= 0;
 		int					RefDesVisible	= 0;
 
-		if(( Attr = PlacedAttr( Symbol, SymbolDef, "RefDes" )) != NULL )
+		int					IsOwn;
+		if(( Attr = PlacedAttr( Symbol, SymbolDef, "RefDes", &IsOwn )) != NULL )
 			{
 			RefDesVisible	= Attr->isvisible;
-			dx				= ( Symbol->isflipped && ( Symbol->rotation == 0 || Symbol->rotation == 180000000 ) ? -1 : 1 ) * Attr->point.x;
-			dy				= ( Symbol->isflipped && ( Symbol->rotation == 90000000 || Symbol->rotation == 270000000 ) ? -1 : 1 ) * Attr->point.y;
-			dAngle			= Attr->rotation;
+			AttrPlacement( Symbol, Attr, IsOwn, &dx, &dy, &dAngle );
 			jf				= Attr->justify;
-			}
-
-		if( Symbol->rotation != 0 )
-			{
-			double	X, Y, a;
-			X	= dx / 1.0e6;
-			Y	= dy / 1.0e6;
-			a	= Symbol->rotation / 180.0e6 * M_PI;
-			dx	= (int)(( X * cos( a ) - Y * sin( a )) * 1.0e6 );	//10000 ) * 100;
-			dy	= (int)(( Y * cos( a ) + X * sin( a )) * 1.0e6 );	//10000 ) * 100;
 			}
 
 		FormatReal( Params, 0, Params->OriginX, Params->ScaleX, Symbol->pt.x + dx, x, sizeof x );
@@ -1094,25 +1108,13 @@ static int OutputSymbol( const parameters_t *Params, unsigned Level, const pcad_
 			char		buffer[3 * MAX( Len1, Len2 ) + 1];
 
 			dx = dy = dAngle			= 0;
-			const pcad_attr_t *Value	= PlacedAttr( Symbol, SymbolDef, "Value" );
+			const pcad_attr_t *Value	= PlacedAttr( Symbol, SymbolDef, "Value", &IsOwn );
 			jf	= 0;
 			if( Value != NULL )
 				{
 				ValueVisible	= Value->isvisible;
-				dx		= ( Symbol->isflipped && ( Symbol->rotation == 0 || Symbol->rotation == 180000000 ) ? -1 : 1 ) * Value->point.x;
-				dy		= ( Symbol->isflipped && ( Symbol->rotation == 90000000 || Symbol->rotation == 270000000 ) ? -1 : 1 ) * Value->point.y;
-				dAngle	= Value->rotation;
+				AttrPlacement( Symbol, Value, IsOwn, &dx, &dy, &dAngle );
 				jf		= Value->justify;
-				}
-
-			if( Symbol->rotation != 0 )
-				{
-				double	X, Y, a;
-				X	= dx / 1.0e6;
-				Y	= dy / 1.0e6;
-				a	= Symbol->rotation / 180.0e6 * M_PI;
-				dx	= (int)(( X * cos( a ) - Y * sin( a )) * 1.0e6 );	//10000 ) * 100;
-				dy	= (int)(( Y * cos( a ) + X * sin( a )) * 1.0e6 );	//10000 ) * 100;
 				}
 
 			FormatReal( Params, 0, Params->OriginX, Params->ScaleX, Symbol->pt.x + dx, x, sizeof x );
@@ -1131,20 +1133,8 @@ static int OutputSymbol( const parameters_t *Params, unsigned Level, const pcad_
 			if( stricmp( Attr->name, "RefDes" ) == 0 || stricmp( Attr->name, "Value" ) == 0 || stricmp( Attr->name, "Description" ) == 0 )
 				continue;
 
-			dx		= ( Symbol->isflipped && ( Symbol->rotation == 0 || Symbol->rotation == 180000000 ) ? -1 : 1 ) * Attr->point.x;
-			dy		= ( Symbol->isflipped && ( Symbol->rotation == 90000000 || Symbol->rotation == 270000000 ) ? -1 : 1 ) * Attr->point.y;
-			dAngle	= Attr->rotation;
+			AttrPlacement( Symbol, Attr, 1, &dx, &dy, &dAngle );
 			jf		= Attr->justify;
-
-			if( Symbol->rotation != 0 )
-				{
-				double	X, Y, a;
-				X	= dx / 1.0e6;
-				Y	= dy / 1.0e6;
-				a	= Symbol->rotation / 180.0e6 * M_PI;
-				dx	= (int)(( X * cos( a ) - Y * sin( a )) * 1.0e6 );
-				dy	= (int)(( Y * cos( a ) + X * sin( a )) * 1.0e6 );
-				}
 
 			FormatReal( Params, 0, Params->OriginX, Params->ScaleX, Symbol->pt.x + dx, x, sizeof x );
 			FormatReal( Params, 0, Params->OriginY, Params->ScaleY, Symbol->pt.y + dy, y, sizeof y );
