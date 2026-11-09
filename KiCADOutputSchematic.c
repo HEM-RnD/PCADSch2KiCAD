@@ -1178,7 +1178,7 @@ static int OutputSymbol( const parameters_t *Params, unsigned Level, const pcad_
 			FormatReal( Params, 0, Params->OriginY, Params->ScaleY, Symbol->pt.y + dy, y, sizeof y );
 			FormatReal( Params, 0, 0,				1,				dAngle, Angle, sizeof Angle );
 
-			OutputToFile( Params, Level + 1, "(property \"Value\" \"%s\" (at %s %s %s) (effects (font (size 1.27 1.27))%s%s))\n", FormatLabel( IsPower ? CompInst->originalname : CompValue, buffer, sizeof buffer ), x, y, Angle, JustifyKiCAD[jf % LENGTH( JustifyKiCAD )], ValueVisible || IsPower ? "" : " (hide yes)"	);
+			OutputToFile( Params, Level + 1, "(property \"Value\" \"%s\" (at %s %s %s) (effects (font (size 1.27 1.27))%s%s))\n", FormatLabel( IsPower ? CompInst->originalname : CompValue, buffer, sizeof buffer ), x, y, Angle, JustifyKiCAD[jf % LENGTH( JustifyKiCAD )], ValueVisible ? "" : " (hide yes)"	);
 			OutputToFile( Params, Level + 1, "(property \"Footprint\" \"%s\" (at %s %s %s) (effects (font (size 1.27 1.27))%s (hide yes)))\n", FormatName( Footprint, buffer, sizeof buffer ), x, y, Angle, JustifyKiCAD[jf % ( LENGTH( JustifyKiCAD ) - 1 )] );
 			if(( Attr = FindAttr( (const pcad_attr_t*const*)Symbol->vioattrs, Symbol->numattrs, "Description" )) != NULL )
 				OutputToFile( Params, Level + 1, "(property \"Description\" \"%s\" (at %s %s %s) (effects (font (size 1.27 1.27) ) (hide yes)))\n", Attr->value, x, y, Angle );
