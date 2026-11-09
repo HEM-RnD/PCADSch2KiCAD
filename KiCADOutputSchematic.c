@@ -180,28 +180,87 @@ static const pcad_attr_t *PlacedAttr( const pcad_symbol_t *Symbol, const pcad_sy
 	return FindAttr( (const pcad_attr_t*const*)SymbolDef->vioattrs, SymbolDef->numattrs, Name );
 	}
 /*=============================================================================*/
-/* Offset of an attribute from the symbol origin on the sheet, and its angle relative to the symbol.
-   Definition attributes are in the symbol's frame (flipped and rotated with it); a placed instance attribute
-   is stored as shown on the sheet: offset not flipped or rotated, absolute angle (checked on 060 boards:
-   fewest text collisions). */
-static void AttrPlacement( const pcad_symbol_t *Symbol, const pcad_attr_t *Attr, int IsOwn, pcad_dimmension_t *dx, pcad_dimmension_t *dy, pcad_real_t *Angle )
+/* Justification index: row (0 lower, 1 centre, 2 upper) * 3 + column (0 left, 1 centre, 2 right). */
+static pcad_enum_justify_t FlipJustify( pcad_enum_justify_t Justify, int Horizontal, int Vertical )
 	{
+	int	Row = Justify / 3, Column = Justify % 3;
+	if( Horizontal )
+		Column	= 2 - Column;
+	if( Vertical )
+		Row		= 2 - Row;
+	return (pcad_enum_justify_t)( Row * 3 + Column );
+	}
+/*=============================================================================*/
+/* How KiCad 10 draws a symbol field, measured (calibration sheet, text layer of the plotted PDF):
+   [symbol rotation / 90][mirror y][field angle / 90] = { drawn angle / 90, justification flipped along the text,
+   justification flipped across the text }. KiCad draws upside-down text on 0/180 symbols and toggles
+   horizontal/vertical on 90/270 symbols. */
+static const unsigned char KiCadFieldDraw[4][2][4][3] =
+	{
+	{ { { 0, 0, 0 }, { 1, 0, 0 }, { 2, 0, 0 }, { 3, 0, 0 } }, { { 0, 1, 0 }, { 1, 0, 1 }, { 2, 1, 0 }, { 3, 0, 1 } } },
+	{ { { 1, 0, 0 }, { 0, 1, 1 }, { 1, 1, 1 }, { 0, 0, 0 } }, { { 1, 0, 1 }, { 0, 0, 1 }, { 1, 1, 0 }, { 0, 1, 0 } } },
+	{ { { 0, 1, 1 }, { 1, 1, 1 }, { 2, 1, 1 }, { 3, 1, 1 } }, { { 0, 0, 1 }, { 1, 1, 0 }, { 2, 0, 1 }, { 3, 1, 0 } } },
+	{ { { 1, 1, 1 }, { 0, 0, 0 }, { 1, 0, 0 }, { 0, 1, 1 } }, { { 1, 1, 0 }, { 0, 1, 0 }, { 1, 0, 1 }, { 0, 0, 1 } } }
+	};
+/*=============================================================================*/
+/* Field angle and justification that make KiCad draw the text at Shown (0 or 90) with the justification Justify
+   (in the text's own frame). */
+static void KiCadField( const pcad_symbol_t *Symbol, pcad_real_t Shown, pcad_enum_justify_t Justify, pcad_real_t *Angle, pcad_enum_justify_t *Out )
+	{
+	int	Rotation	= ( Symbol->rotation / 90000000 ) & 3, Mirror = Symbol->isflipped ? 1 : 0, a;
+	for( a = 0; a < 4; a++ )
+		{
+		const unsigned char	*Draw	= KiCadFieldDraw[Rotation][Mirror][a];
+		if( Draw[0] * 90000000 == Shown )
+			{
+			*Angle	= a * 90000000;
+			*Out	= FlipJustify( Justify, Draw[1], Draw[2] );
+			return;
+			}
+		}
+	*Angle	= Shown;
+	*Out	= Justify;
+	}
+/*=============================================================================*/
+/* Offset of an attribute from the symbol origin on the sheet, and the KiCad field angle and justification that show
+   it as P-CAD does (checked against a P-CAD print of 060-FDAC-HPAMP):
+   - definition attributes are in the symbol's frame (offset flipped and rotated with the symbol, angle relative);
+   - a placed instance attribute is stored as shown on the sheet (offset as is, absolute angle);
+   - a flipped attribute (instance flag, or any definition attribute of a flipped symbol) shows its justification
+     mirrored along the text;
+   - P-CAD draws text readable: 180/270 shown as 0/90 with the opposite anchor. */
+static void AttrPlacement( const pcad_symbol_t *Symbol, const pcad_attr_t *Attr, int IsOwn, pcad_dimmension_t *dx, pcad_dimmension_t *dy, pcad_real_t *Angle, pcad_enum_justify_t *Justify )
+	{
+	pcad_real_t			Shown;
+	pcad_enum_justify_t	Shows	= Attr->justify;
 	if( IsOwn )
 		{
 		*dx		= Attr->point.x;
 		*dy		= Attr->point.y;
-		*Angle	= ( Attr->rotation - Symbol->rotation + 360000000 ) % 360000000;
-		return;
+		Shown	= Attr->rotation % 360000000;
+		if( Attr->isflipped )
+			Shows	= FlipJustify( Shows, 1, 0 );
 		}
-	*dx		= ( Symbol->isflipped && ( Symbol->rotation == 0 || Symbol->rotation == 180000000 ) ? -1 : 1 ) * Attr->point.x;
-	*dy		= ( Symbol->isflipped && ( Symbol->rotation == 90000000 || Symbol->rotation == 270000000 ) ? -1 : 1 ) * Attr->point.y;
-	*Angle	= Attr->rotation;
-	if( Symbol->rotation != 0 )
+	else
 		{
-		double	X = *dx / 1.0e6, Y = *dy / 1.0e6, a = Symbol->rotation / 180.0e6 * M_PI;
-		*dx	= (int)(( X * cos( a ) - Y * sin( a )) * 1.0e6 );
-		*dy	= (int)(( Y * cos( a ) + X * sin( a )) * 1.0e6 );
+		*dx		= ( Symbol->isflipped && ( Symbol->rotation == 0 || Symbol->rotation == 180000000 ) ? -1 : 1 ) * Attr->point.x;
+		*dy		= ( Symbol->isflipped && ( Symbol->rotation == 90000000 || Symbol->rotation == 270000000 ) ? -1 : 1 ) * Attr->point.y;
+		Shown	= ( Attr->rotation + Symbol->rotation ) % 360000000;
+		if( Symbol->isflipped )
+			Shows	= FlipJustify( Shows, 1, 0 );
+		if( Symbol->rotation != 0 )
+			{
+			double	X = *dx / 1.0e6, Y = *dy / 1.0e6, a = Symbol->rotation / 180.0e6 * M_PI;
+			*dx	= (int)(( X * cos( a ) - Y * sin( a )) * 1.0e6 );
+			*dy	= (int)(( Y * cos( a ) + X * sin( a )) * 1.0e6 );
+			}
 		}
+	if( Shown >= 180000000 )
+		{
+		Shown	-= 180000000;
+		Shows	= FlipJustify( Shows, 1, 1 );
+		}
+	KiCadField( Symbol, Shown, Shows, Angle, Justify );
 	}
 
 /*=============================================================================*/
@@ -1088,8 +1147,7 @@ static int OutputSymbol( const parameters_t *Params, unsigned Level, const pcad_
 		if(( Attr = PlacedAttr( Symbol, SymbolDef, "RefDes", &IsOwn )) != NULL )
 			{
 			RefDesVisible	= Attr->isvisible;
-			AttrPlacement( Symbol, Attr, IsOwn, &dx, &dy, &dAngle );
-			jf				= Attr->justify;
+			AttrPlacement( Symbol, Attr, IsOwn, &dx, &dy, &dAngle, &jf );
 			}
 
 		FormatReal( Params, 0, Params->OriginX, Params->ScaleX, Symbol->pt.x + dx, x, sizeof x );
@@ -1113,8 +1171,7 @@ static int OutputSymbol( const parameters_t *Params, unsigned Level, const pcad_
 			if( Value != NULL )
 				{
 				ValueVisible	= Value->isvisible;
-				AttrPlacement( Symbol, Value, IsOwn, &dx, &dy, &dAngle );
-				jf		= Value->justify;
+				AttrPlacement( Symbol, Value, IsOwn, &dx, &dy, &dAngle, &jf );
 				}
 
 			FormatReal( Params, 0, Params->OriginX, Params->ScaleX, Symbol->pt.x + dx, x, sizeof x );
@@ -1133,8 +1190,7 @@ static int OutputSymbol( const parameters_t *Params, unsigned Level, const pcad_
 			if( stricmp( Attr->name, "RefDes" ) == 0 || stricmp( Attr->name, "Value" ) == 0 || stricmp( Attr->name, "Description" ) == 0 )
 				continue;
 
-			AttrPlacement( Symbol, Attr, 1, &dx, &dy, &dAngle );
-			jf		= Attr->justify;
+			AttrPlacement( Symbol, Attr, 1, &dx, &dy, &dAngle, &jf );
 
 			FormatReal( Params, 0, Params->OriginX, Params->ScaleX, Symbol->pt.x + dx, x, sizeof x );
 			FormatReal( Params, 0, Params->OriginY, Params->ScaleY, Symbol->pt.y + dy, y, sizeof y );
