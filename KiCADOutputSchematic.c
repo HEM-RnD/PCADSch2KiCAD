@@ -168,6 +168,18 @@ static const char *JustifyKiCAD[]	=
 	" (justify left top)",		" (justify top)",		" (justify right top)"
 	};
 /*=============================================================================*/
+/* A symbol instance may place its RefDes/Value itself (position, rotation, justification set on the sheet);
+   the symbol definition only holds the default placement. */
+static const pcad_attr_t *FindAttr( const pcad_attr_t * const *Attributes, size_t NumAttributes, const char *Name );
+static const pcad_attr_t *PlacedAttr( const pcad_symbol_t *Symbol, const pcad_symboldef_t *SymbolDef, const char *Name )
+	{
+	const pcad_attr_t	*Own	= FindAttr( (const pcad_attr_t*const*)Symbol->vioattrs, Symbol->numattrs, Name );
+	if( Own != NULL && ( Own->isvisible || Own->point.x != 0 || Own->point.y != 0 || Own->rotation != 0 ))
+		return Own;
+	return FindAttr( (const pcad_attr_t*const*)SymbolDef->vioattrs, SymbolDef->numattrs, Name );
+	}
+
+/*=============================================================================*/
 static pcad_busentry_t *FindBusEntry( const pcad_sheet_t *Sheet, const pcad_point_t *p, const pcad_point_t *p2 )
 	{
 	int	i;
@@ -1047,7 +1059,7 @@ static int OutputSymbol( const parameters_t *Params, unsigned Level, const pcad_
 		pcad_enum_justify_t	jf	= 0;
 		int					RefDesVisible	= 0;
 
-		if(( Attr = FindAttr( (const pcad_attr_t*const*)SymbolDef->vioattrs, SymbolDef->numattrs, "RefDes" )) != NULL )
+		if(( Attr = PlacedAttr( Symbol, SymbolDef, "RefDes" )) != NULL )
 			{
 			RefDesVisible	= Attr->isvisible;
 			dx				= ( Symbol->isflipped && ( Symbol->rotation == 0 || Symbol->rotation == 180000000 ) ? -1 : 1 ) * Attr->point.x;
@@ -1082,7 +1094,7 @@ static int OutputSymbol( const parameters_t *Params, unsigned Level, const pcad_
 			char		buffer[3 * MAX( Len1, Len2 ) + 1];
 
 			dx = dy = dAngle			= 0;
-			const pcad_attr_t *Value	= FindAttr( (const pcad_attr_t*const*)SymbolDef->vioattrs, SymbolDef->numattrs, "Value" );
+			const pcad_attr_t *Value	= PlacedAttr( Symbol, SymbolDef, "Value" );
 			jf	= 0;
 			if( Value != NULL )
 				{
